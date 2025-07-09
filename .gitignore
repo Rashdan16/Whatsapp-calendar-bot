@@ -9,3 +9,8 @@ credentials.json
 # Editor folders
 .vscode/
 *.swp
+
+# Google OAuth
+.env
+credentials.json
+

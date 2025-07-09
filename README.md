@@ -24,4 +24,5 @@ A WhatsApp chatbot that parses event requests and schedules them in Google Calen
 - `main`: stable prototype  
 - `feature/...`: new features  
 
+Reminder: Once you add more routes or callbacks, use the Flask CLI instead of python whatsapp_bot.py—set FLASK_APP=whatsapp_bot.py and run flask run for auto-reload and better error pages.
 
