@@ -2,31 +2,45 @@ import os
 import json
 from flask import Flask, request, redirect, session, url_for
 from dotenv import load_dotenv
+
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 from twilio.twiml.messaging_response import MessagingResponse
 from pyngrok import ngrok
-
-def parse_event(text):
-    """
-    Very naïve parser:
-    - Uses the entire incoming message as the event title.
-    - Schedules it to start NOW (UTC) and last 1 hour.
-    Returns: (title, start_iso, end_iso)
-    """
-    title = text
-    start = datetime.utcnow()
-    end   = start + timedelta(hours=1)
-    # Format as ISO strings with Z to indicate UTC
-    start_iso = start.isoformat() + 'Z'
-    end_iso   = end.isoformat()   + 'Z'
-    return title, start_iso, end_iso
-
-
+import openai
+from googleapiclient.errors import HttpError
+from openai import OpenAI
 # ── Load environment vars from .env ───────────────────────────────────────────
 load_dotenv()
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+MODEL  = "gpt-4-mini"   # alias for “4.1-nano” in the SDK
+
+def parse_event(text: str):
+    """Use GPT-4.1 Nano to extract title, start, end, attendees."""
+    prompt = f"""
+Extract from this message a calendar event.  
+Return ONLY valid JSON with keys: title (string), start (ISO datetime), end (ISO datetime), attendees (array of emails, may be empty).
+
+Message:
+\"\"\"
+{text}
+\"\"\"
+"""
+    resp = client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role":"system", "content":"You are a helpful calendar assistant."}, {"role":"user",   "content":prompt}],
+        temperature=0
+    )
+    data = resp.choices[0].message.content.strip()
+    return json.loads(data)
+
+
+
+
+
 
 # ── Flask setup ──────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -106,31 +120,40 @@ def create_test_event():
 def whatsapp_webhook():
     incoming_msg = request.values.get('Body', '').strip()
 
+    # 1) Ensure we have calendar creds
     service = build_calendar_service()
     if not service:
         auth_url = url_for('authorize', _external=True)
-        resp = MessagingResponse()
+        resp    = MessagingResponse()
         resp.message(f"👋 Hi there! To link your Google Calendar, tap here:\n{auth_url}")
         return str(resp)
 
- 
+    # 2) Parse via AI
+    data      = parse_event(incoming_msg)
+    title     = data['title']
+    start_iso = data['start']
+    end_iso   = data['end']
+    attendees = data.get('attendees', [])
 
-
-    # 2) Parse message → (title, start_iso, end_iso)
-    title, start_iso, end_iso = parse_event(incoming_msg)
-
-    # 3) Create the Calendar event
-    service = build_calendar_service()
+    # 3) Build the event
     event = {
-        'summary': title,
-        'start': {'dateTime': start_iso, 'timeZone': 'Asia/Dhaka'},
-        'end':   {'dateTime': end_iso,   'timeZone': 'Asia/Dhaka'},
+      'summary':   title,
+      'start':   {'dateTime': start_iso, 'timeZone': 'Asia/Dhaka'},
+      'end':     {'dateTime': end_iso,   'timeZone': 'Asia/Dhaka'},
+      'attendees': [{'email': e} for e in attendees],
     }
-    service.events().insert(calendarId='primary', body=event).execute()
 
-    # 4) Reply via WhatsApp
+    # 4) Try inserting — catch failures
+    try:
+        created = service.events().insert(calendarId='primary', body=event).execute()
+    except HttpError as e:
+        resp = MessagingResponse()
+        resp.message("❌ Oops! I wasn’t able to create your event. Please try again later.")
+        return str(resp)
+
+    # 5) Success reply
     resp = MessagingResponse()
-    resp.message(f"✅ Booked “{title}” on {start_iso.replace('T',' ').split('+')[0]}")
+    resp.message(f"✅ Booked “{title}” on {start_iso.replace('T',' ').split('Z')[0]}")
     return str(resp)
 
 # ── Run server ────────────────────────────────────────────────────────────────
