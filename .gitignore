@@ -14,3 +14,7 @@ credentials.json
 .env
 credentials.json
 
+# local OAuth tokens
+.env
+token.json
+
