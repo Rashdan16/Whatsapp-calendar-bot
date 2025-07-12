@@ -2,7 +2,6 @@ import os
 import json
 from flask import Flask, request, redirect, session, url_for
 from dotenv import load_dotenv
-
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
@@ -16,7 +15,7 @@ from openai import OpenAI
 load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-MODEL  = "gpt-4-mini"   # alias for “4.1-nano” in the SDK
+MODEL  = "gpt-4o-mini"   # alias for “4.1-nano” in the SDK
 
 def parse_event(text: str):
     """Use GPT-4.1 Nano to extract title, start, end, attendees."""
@@ -35,6 +34,7 @@ Message:
         temperature=0
     )
     data = resp.choices[0].message.content.strip()
+    print("🔍 raw LLM output:", repr(data))
     return json.loads(data)
 
 
