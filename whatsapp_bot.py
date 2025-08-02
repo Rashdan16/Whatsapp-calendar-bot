@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from flask import Flask, request, redirect, session, url_for
 from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
@@ -24,18 +25,29 @@ Extract from this message a calendar event.
 Return ONLY valid JSON with keys: title (string), start (ISO datetime), end (ISO datetime), attendees (array of emails, may be empty).
 
 Message:
-\"\"\"
+\"\"\" 
 {text}
-\"\"\"
+\"\"\" 
 """
+
     resp = client.chat.completions.create(
         model=MODEL,
-        messages=[{"role":"system", "content":"You are a helpful calendar assistant."}, {"role":"user",   "content":prompt}],
+        messages=[
+            {"role": "system", "content": "You are a helpful calendar assistant."},
+            {"role": "user", "content": prompt}
+        ],
         temperature=0
     )
-    data = resp.choices[0].message.content.strip()
-    print("🔍 raw LLM output:", repr(data))
-    return json.loads(data)
+
+    raw = resp.choices[0].message.content.strip()
+    print("🔍 raw LLM output:", repr(raw))
+
+    # Clean up any formatting like ```json or triple quotes
+    cleaned = re.sub(r"^```json|```$", "", raw.strip(), flags=re.MULTILINE)
+
+    # Try to parse JSON safely
+    return json.loads(cleaned)
+
 
 
 
